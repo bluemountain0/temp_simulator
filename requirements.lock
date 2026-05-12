@@ -1,0 +1,20 @@
+# Pinned dependency versions for reproducibility.
+#
+# Update procedure:
+#   pip show <pkg> | grep Version    # check current installed version
+#   (or, inside a venv: pip freeze > requirements.lock)
+#
+# requirements.txt = minimum versions ("at least this version").
+# requirements.lock = exact versions (this file) for reproducing the same env on another machine.
+#
+# Install: pip install -r requirements.lock
+#
+# Last update: 2026-05-12 (Python 3.13.2 / Windows)
+# Note: comments must be ASCII because pip on Windows reads this file via cp949 by default.
+
+streamlit==1.57.0
+scipy==1.17.1
+numpy==2.2.4
+plotly==6.7.0
+pandas==2.2.3
+pytest==9.0.3

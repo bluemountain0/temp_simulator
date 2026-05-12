@@ -5,6 +5,7 @@ import streamlit as st
 
 from conditions import ExposureCondition, OilCondition
 from damage import DamageLevel, DamageVerdict, _THRESHOLDS, judge
+from fdm2d_solver import FDM2DSolver
 from geometry import TubeGeometry
 from thermal_solver import HybridFDSolver, RCSolver
 
@@ -138,7 +139,13 @@ with st.sidebar:
 
     with st.expander("🧪 민감도", expanded=False):
         k_bti5 = int(st.selectbox("BTi-5 열전도율 [W/m·K]", [10, 20, 40], 1))
-        use_hybrid = st.checkbox("HybridFD 솔버 사용 (권장)", value=True)
+        solver_choice = st.selectbox(
+            "열 솔버",
+            ["HybridFD (기본)", "FDM2D Phase 2"],
+            help="HybridFD: W 슬랩 1D-FD + RC. FDM2D: W r-z 2D-FVM (횡방향 확산 반영, ~30s+)",
+        )
+        use_fdm2d = solver_choice == "FDM2D Phase 2"
+        use_hybrid = not use_fdm2d  # FDM2D 미선택 시 HybridFD 기본
 
     st.divider()
     run_btn = st.button("▶ 실행", type="primary", use_container_width=True)
@@ -166,11 +173,16 @@ def _make_oil(vol, vw, vd, h):
 
 @st.cache_data
 def run_sim(mode_, kV_, mA_, cur_type_, on_, off_, cyc_, freq_, duty_,
-            L_, W_, vol_, vw_, vd_, h_, k_bti5_, use_hybrid_):
+            L_, W_, vol_, vw_, vd_, h_, k_bti5_, use_hybrid_, use_fdm2d_=False):
     exp = _make_exp(mode_, kV_, mA_, cur_type_, on_, off_, cyc_, freq_, duty_)
     oil = _make_oil(vol_, vw_, vd_, h_)
     geom = TubeGeometry(focal_L_eff_mm=L_, focal_W_eff_mm=W_)
-    solver = HybridFDSolver() if use_hybrid_ else RCSolver()
+    if use_fdm2d_:
+        solver = FDM2DSolver(Nr=24, Nz=20)
+    elif use_hybrid_:
+        solver = HybridFDSolver()
+    else:
+        solver = RCSolver()
     result = solver.solve(exp, geom, k_bti5=float(k_bti5_), oil_cond=oil)
     verdict = judge(result)
     return result, verdict
@@ -268,16 +280,17 @@ def _validity_warn(on_time_s: float, mode_str: str):
 _args = None
 if run_btn:
     _args = (mode, kV, mA, cur_type, on_time, off_time, cycles, freq_hz, duty,
-             L_eff, W_eff, oil_vol, ves_w, ves_d, h_oil, k_bti5, use_hybrid)
+             L_eff, W_eff, oil_vol, ves_w, ves_d, h_oil, k_bti5, use_hybrid, use_fdm2d)
 elif val_btn:
     _args = ("DC 단발", 100.0, 12.0, "Peak", 50.0, 0.0, 1, 0.0, 1.0,
-             1.1, 0.75, 30, 20.0, 20.0, 50.0, 20, True)
+             1.1, 0.75, 30, 20.0, 20.0, 50.0, 20, True, False)
 
 result = None
 verdict = None
 
 if _args is not None:
-    with st.spinner("계산 중..."):
+    _spinner_msg = "2D 솔버 계산 중... (30초 ~)" if _args[-1] else "계산 중..."
+    with st.spinner(_spinner_msg):
         try:
             result, verdict = run_sim(*_args)
             st.success(f"완료 — {len(result.t)} 타임스텝")
@@ -318,7 +331,7 @@ if result is not None and verdict is not None:
         )
         v_res, v_verd = run_sim(
             "DC 단발", 100.0, 12.0, "Peak", 50.0, 0.0, 1, 0.0, 1.0,
-            1.1, 0.75, 30, 20.0, 20.0, 50.0, 20, True,
+            1.1, 0.75, 30, 20.0, 20.0, 50.0, 20, True, False,
         )
         _, lvl_label = LEVEL_COLORS[v_verd.level]
         c1, c2, c3 = st.columns(3)

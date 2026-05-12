@@ -79,6 +79,27 @@
 - **영향**: `waveform._pulse_trace()`, `thermal_rc.solve_rc()` peak 보정 블록, `HybridFDSolver` 동일 보정
 - **상태**: Active
 
+## 2026-05-12 — Phase 2: W 슬랩 2D-FDM (r-z 축대칭) 도입
+
+- **결정**: W 슬랩만 24×20 = 480 노드 균일 직교 5-point FVM (Option A) 으로 교체. BTi5/Cu/Oil 은 기존 0D 집중 RC 유지. `scipy.sparse` + `solve_ivp(Radau, jac_sparsity=...)`. 외부 FEM 라이브러리 미사용. `app.py` 사이드바 토글로 사용자 선택, 기본값은 HybridFD 유지.
+- **이유**:
+  - 단순성: Phase 1.0b 1D 균일 격자에 r 방향 확장만, 회귀 위험 최소
+  - 계산 시간: (24,20) 검증 케이스 0.2~0.3s 측정 (< 30s 예산 안)
+  - 인터페이스 호환: `IThermalSolver` / `ThermalResult` 시그니처 불변, `app.py` 토글로 add-only
+  - 횡방향 열확산 반영: 50s DC 검증 케이스 W 표면 부피가중 평균 18% 감소 (HybridFD 대비)
+- **대안**:
+  - Option B (graded FVM): 정확도 ↑ 이나 구현 복잡, 회귀 위험 ↑. `Grid.to_nonuniform()` stub 으로 진화 경로 보존
+  - FEniCS / Firedrake: 정확도 최고, Windows pip 호환성/PyInstaller 패키징 불가
+  - scikit-fem: pure Python FEM, 축대칭 r-z 1차 시민 아님, 의존성 추가 부담
+  - Phase 1.0b + 횡효과 보정 항: 물리 근거 부족
+- **영향**:
+  - 신규 `fdm2d_grid.py`, `fdm2d_assembly.py`, `fdm2d_solver.py`
+  - 신규 테스트: `tests/test_fdm2d_{grid,assembly,solver,validation,convergence,longterm}.py`
+  - `app.py` 사이드바 토글, `@st.cache_data` 시그니처에 `use_fdm2d` 추가
+  - `.github/workflows/phase2-ci.yml` (ubuntu-22.04 고정, `requirements.lock` 사용)
+  - `docs/PHASE2_VALIDATION.md` (검증 보고서)
+- **상태**: Active
+
 ## 2026-05-12 — 하네스 엔지니어링 도입
 
 - **결정**: `docs/` 디렉토리에 PROJECT_MAP/ARCHITECTURE/CODING_RULES/TESTING/DEBUGGING/QUALITY_SCORE/TECH_DEBT/DECISIONS 8개 영구 문서 + `scripts/check_project_health.py` 추가. `CLAUDE.md` 신규 생성 (AGENTS.md는 기존 유지)

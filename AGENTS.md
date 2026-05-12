@@ -6,8 +6,8 @@ X-ray 고정 애노드(Fixed Anode) 튜브의 열손상 위험을 예측하는 S
 사용자가 관전압(kV), 관전류(mA), 조사 시간, 냉각 조건을 입력하면
 W 표면 → BTi5 → Cu → 절연유 경로의 온도 이력을 계산하고 손상 단계를 판정한다.
 
-- **현재 단계**: Phase 1.0b (HybridFDSolver)
-- **모델 신뢰도**: ±30~50% (1D 가정, 횡방향 열확산 미반영)
+- **현재 단계**: Phase 2 (FDM2DSolver 토글 추가; HybridFDSolver 기본 유지)
+- **모델 신뢰도**: HybridFD ±30~50% / FDM2D ±20~30% (횡방향 열확산 반영)
 - **실행 방법**: `실행.bat` 더블클릭 또는 `streamlit run app.py`
 
 ---
@@ -42,7 +42,9 @@ W 표면 → BTi5 → Cu → 절연유 경로의 온도 이력을 계산하고 �
 | `materials.py` | 재료 물성 상수 (W, Cu, BTi5, Oil) |
 | `conditions.py` | `ExposureCondition`, `OilCondition` 데이터클래스 |
 | `damage.py` | 손상 판정 (`judge`), `DamageLevel`, `DamageVerdict`, `_THRESHOLDS` |
-| `fem_model.py` | Phase 2 플레이스홀더 — `NotImplementedError` 상태 |
+| `fdm2d_solver.py` | Phase 2 W 슬랩 2D-FDM 솔버 (`FDM2DSolver`, IThermalSolver 구현) |
+| `fdm2d_grid.py` | r-z 축대칭 균일 격자 빌더 (`Grid`, `build_grid`, `focal_mask`) |
+| `fdm2d_assembly.py` | sparse Laplacian + conductance + 결합 RHS 어셈블러 |
 | `tests/` | 61개 단위 테스트 (pytest) |
 | `실행.bat` | 더블클릭 실행용 배치 파일 |
 
@@ -123,8 +125,17 @@ pytest tests/ -v
 |------|------|------|
 | Phase 1.0a | 6-노드 RC 솔버 | ✅ 완료 |
 | Phase 1.0b | W 슬랩 1D-FD + RC 하이브리드 | ✅ 완료 |
-| Phase 2 | W 슬랩 2D-FDM (r-z 축대칭, 횡방향 포함) | 🔲 미구현 |
+| Phase 2 | W 슬랩 2D-FDM (r-z 축대칭, 횡방향 포함) | ✅ 완료 |
 | Phase 3 | 실험 데이터 검증 및 재료 물성 보정 | 🔲 대기 중 |
+
+### Phase 2: W 슬랩 2D-FDM 구현 (✅ 완료)
+- `FDM2DSolver` (`fdm2d_solver.py`): 24×20 균일 r-z 축대칭 FVM (Option A, 5-point stencil)
+- `Grid` 빌더 (`fdm2d_grid.py`) + sparse Laplacian (`fdm2d_assembly.py`)
+- 횡방향 열확산 반영 → 50s DC 검증 케이스 W 표면 부피가중 평균 18% 감소
+- 격자 수렴 검증: (24,20)→(32,28) ΔT 변화 < 2%, (32,28) wall-time < 60s
+- `app.py` 사이드바 토글로 HybridFD/FDM2D 선택 (기본 HybridFD)
+- `.github/workflows/phase2-ci.yml` (ubuntu-22.04 고정 + `requirements.lock`)
+- 검증 보고서: `docs/PHASE2_VALIDATION.md`
 
 ---
 
@@ -132,6 +143,6 @@ pytest tests/ -v
 
 - `thermal_solver.py`와 `thermal_rc.py` 양쪽 모두 `t_eval=t_arr` 유지할 것
 - `_MAX_SAMPLES = 100_000` 초과 시 `ValueError` 발생 — DC 사이클 긴 조건에서 주의
-- `fdm2d_solver.py`는 Phase 2 인플라이트 (`phase2-2dfdm` 브랜치). US-2부터 구현 진행 중
+- `fdm2d_solver.py`는 Phase 2 활성 솔버 (`app.py` 사이드바 토글). 기본은 HybridFD 유지
 - `st.cache_data`가 `run_sim()`에 적용됨 — 입력값 동일 시 재계산 없음
 - 재료 물성 변경 시 `materials.py`만 수정하면 전체 반영됨

@@ -5,6 +5,7 @@ import streamlit as st
 
 from conditions import ExposureCondition, OilCondition
 from damage import DamageLevel, DamageVerdict, _THRESHOLDS, judge
+from fdm2d_solver import FDM2DSolver
 from geometry import TubeGeometry
 from thermal_solver import HybridFDSolver, RCSolver
 
@@ -22,15 +23,50 @@ LEVEL_COLORS = {
 }
 
 THRESHOLD_LINES = [
-    (700,  "BTi-5 경고 700°C",   "#c5b0d5"),   # BTi5 연보라
-    (840,  "BTi-5 고상선 840°C",  "#9467bd"),   # BTi5 보라
-    (880,  "BTi-5 액상선 880°C",  "#6a3d9a"),   # BTi5 진보라
-    (1085, "Cu 용융 1085°C",     "#2ca02c"),   # Cu_body 초록
-    (2500, "W 손상4 2500°C",    "#d62728"),   # W surf 빨강
-    (3422, "W 파국 3422°C",     "#8b0000"),   # W surf 다크레드
+    (700,  "BTi-5 경고 700°C",        "#9467bd"),   # 보라
+    (880,  "BTi-5 액상선 880°C",     "#ff7f0e"),   # 주황
+    (2500, "W 손상4 2500°C",        "#d62728"),   # 빨강
 ]
 
 NODE_COLORS = ["#d62728", "#ff7f0e", "#9467bd", "#8c564b", "#2ca02c", "#1f77b4"]
+
+# FSS 테이블 (IEC 60336 표3) — 공칭 초점 칫수 f → 최대 허용값 (L, W) [mm]
+_FSS_TABLE = {
+    0.1: {"length": 0.15, "width": 0.15},
+    0.15: {"length": 0.23, "width": 0.23},
+    0.2: {"length": 0.30, "width": 0.30},
+    0.25: {"length": 0.38, "width": 0.38},
+    0.3: {"length": 0.45, "width": 0.65},
+    0.4: {"length": 0.60, "width": 0.85},
+    0.5: {"length": 0.75, "width": 1.10},
+    0.6: {"length": 0.90, "width": 1.30},
+    0.7: {"length": 1.10, "width": 1.50},
+    0.8: {"length": 1.20, "width": 1.60},
+    0.9: {"length": 1.30, "width": 1.80},
+    1.0: {"length": 1.40, "width": 2.00},
+    1.1: {"length": 1.50, "width": 2.20},
+    1.2: {"length": 1.70, "width": 2.40},
+    1.3: {"length": 1.80, "width": 2.60},
+    1.4: {"length": 1.90, "width": 2.80},
+    1.5: {"length": 2.00, "width": 3.00},
+    1.6: {"length": 2.10, "width": 3.10},
+    1.7: {"length": 2.20, "width": 3.20},
+    1.8: {"length": 2.30, "width": 3.30},
+    1.9: {"length": 2.40, "width": 3.50},
+    2.0: {"length": 2.60, "width": 3.70},
+    2.2: {"length": 2.90, "width": 4.00},
+    2.4: {"length": 3.10, "width": 4.40},
+    2.6: {"length": 3.40, "width": 4.80},
+    2.8: {"length": 3.60, "width": 5.20},
+    3.0: {"length": 3.90, "width": 5.60},
+}
+
+def _get_nominal_fss(L_eff: float, W_eff: float) -> float:
+    """L_eff, W_eff → 해당하는 공칭값 f 반환 (FSS 테이블 기반)."""
+    for f in sorted(_FSS_TABLE.keys()):
+        if L_eff <= _FSS_TABLE[f]["length"] and W_eff <= _FSS_TABLE[f]["width"]:
+            return f
+    return 3.0  # 상한
 
 # ─── 페이지 설정 ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -61,15 +97,41 @@ with st.sidebar:
         if mode == "Pulse":
             freq_hz = st.number_input("주파수 [Hz]", 0.1, 10000.0, 1000.0)
             duty = st.slider("듀티 사이클", 0.01, 1.0, 0.1, 0.01)
+            pulse_cyclic = st.checkbox("펄스 사이클 모드", value=False)
+            if pulse_cyclic:
+                off_time = st.number_input("펄스 휴지 시간 [s]", 0.0, 3600.0, 5.0, 1.0)
+                cycles = int(st.number_input("사이클 수", 1, 100, 3, 1))
+            else:
+                off_time, cycles = 0.0, 1
         else:
             freq_hz, duty = 0.0, 1.0
+            pulse_cyclic = False
+            off_time, cycles = 0.0, 1
 
     with st.expander("🔍 포컬 스팟", expanded=False):
-        L_eff = st.number_input("실효 길이 L_eff [mm]", 0.1, 10.0, 1.1, 0.1)
-        W_eff = st.number_input("실효 폭 W_eff [mm]", 0.1, 10.0, 0.75, 0.05)
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            L_eff = st.number_input("실효 길이 L_eff [mm]", 0.1, 10.0, 1.1, 0.1)
+            W_eff = st.number_input("실효 폭 W_eff [mm]", 0.1, 10.0, 0.75, 0.05)
+        with col2:
+            st.write("")  # 높이 맞추기
+            if st.button("📋 FSS 표"):
+                try:
+                    from pathlib import Path
+                    fss_path = Path.home() / "Desktop" / "열역학" / "참고자료" / "FSS_Table.png"
+                    if fss_path.exists():
+                        st.image(str(fss_path), caption="IEC 60336 표3", use_column_width=True)
+                    else:
+                        st.error(f"파일을 찾을 수 없습니다: {fss_path}")
+                except Exception as e:
+                    st.error(f"이미지 로드 오류: {e}")
+
+        nominal = _get_nominal_fss(L_eff, W_eff)
+        st.metric("Nominal 초점 칫수 f", f"{nominal:.1f}",
+                  help="IEC 60336 표3 기반 공칭값")
 
     with st.expander("🛢️ 냉각 조건", expanded=True):
-        oil_vol = int(st.selectbox("절연유 부피 [L]", [25, 30], 0))
+        oil_vol = int(st.number_input("절연유 부피 [L]", 1.0, 500.0, 25.0, 1.0))
         ves_w = st.number_input("용기 가로 [cm]", 5.0, 200.0, 20.0, 1.0)
         ves_d = st.number_input("용기 세로 [cm]", 5.0, 200.0, 20.0, 1.0)
         conv = st.radio("대류", ["자연 (h=50 W/m²K)", "강제 (h=200 W/m²K)"], horizontal=False)
@@ -77,7 +139,13 @@ with st.sidebar:
 
     with st.expander("🧪 민감도", expanded=False):
         k_bti5 = int(st.selectbox("BTi-5 열전도율 [W/m·K]", [10, 20, 40], 1))
-        use_hybrid = st.checkbox("HybridFD 솔버 사용 (권장)", value=True)
+        solver_choice = st.selectbox(
+            "열 솔버",
+            ["HybridFD (기본)", "FDM2D Phase 2"],
+            help="HybridFD: W 슬랩 1D-FD + RC. FDM2D: W r-z 2D-FVM (횡방향 확산 반영, ~30s+)",
+        )
+        use_fdm2d = solver_choice == "FDM2D Phase 2"
+        use_hybrid = not use_fdm2d  # FDM2D 미선택 시 HybridFD 기본
 
     st.divider()
     run_btn = st.button("▶ 실행", type="primary", use_container_width=True)
@@ -105,11 +173,16 @@ def _make_oil(vol, vw, vd, h):
 
 @st.cache_data
 def run_sim(mode_, kV_, mA_, cur_type_, on_, off_, cyc_, freq_, duty_,
-            L_, W_, vol_, vw_, vd_, h_, k_bti5_, use_hybrid_):
+            L_, W_, vol_, vw_, vd_, h_, k_bti5_, use_hybrid_, use_fdm2d_=False):
     exp = _make_exp(mode_, kV_, mA_, cur_type_, on_, off_, cyc_, freq_, duty_)
     oil = _make_oil(vol_, vw_, vd_, h_)
     geom = TubeGeometry(focal_L_eff_mm=L_, focal_W_eff_mm=W_)
-    solver = HybridFDSolver() if use_hybrid_ else RCSolver()
+    if use_fdm2d_:
+        solver = FDM2DSolver(Nr=24, Nz=20)
+    elif use_hybrid_:
+        solver = HybridFDSolver()
+    else:
+        solver = RCSolver()
     result = solver.solve(exp, geom, k_bti5=float(k_bti5_), oil_cond=oil)
     verdict = judge(result)
     return result, verdict
@@ -207,16 +280,17 @@ def _validity_warn(on_time_s: float, mode_str: str):
 _args = None
 if run_btn:
     _args = (mode, kV, mA, cur_type, on_time, off_time, cycles, freq_hz, duty,
-             L_eff, W_eff, oil_vol, ves_w, ves_d, h_oil, k_bti5, use_hybrid)
+             L_eff, W_eff, oil_vol, ves_w, ves_d, h_oil, k_bti5, use_hybrid, use_fdm2d)
 elif val_btn:
     _args = ("DC 단발", 100.0, 12.0, "Peak", 50.0, 0.0, 1, 0.0, 1.0,
-             1.1, 0.75, 30, 20.0, 20.0, 50.0, 20, True)
+             1.1, 0.75, 30, 20.0, 20.0, 50.0, 20, True, False)
 
 result = None
 verdict = None
 
 if _args is not None:
-    with st.spinner("계산 중..."):
+    _spinner_msg = "2D 솔버 계산 중... (30초 ~)" if _args[-1] else "계산 중..."
+    with st.spinner(_spinner_msg):
         try:
             result, verdict = run_sim(*_args)
             st.success(f"완료 — {len(result.t)} 타임스텝")
@@ -257,7 +331,7 @@ if result is not None and verdict is not None:
         )
         v_res, v_verd = run_sim(
             "DC 단발", 100.0, 12.0, "Peak", 50.0, 0.0, 1, 0.0, 1.0,
-            1.1, 0.75, 30, 20.0, 20.0, 50.0, 20, True,
+            1.1, 0.75, 30, 20.0, 20.0, 50.0, 20, True, False,
         )
         _, lvl_label = LEVEL_COLORS[v_verd.level]
         c1, c2, c3 = st.columns(3)

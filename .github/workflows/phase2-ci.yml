@@ -1,0 +1,35 @@
+name: phase2-ci
+
+on:
+  push:
+    branches: [phase2-2dfdm]
+  pull_request:
+    branches: [main, phase2-2dfdm]
+
+jobs:
+  phase2-tests:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Install dependencies (locked)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+
+      - name: Run pytest
+        run: pytest tests/ -v --tb=short
+
+      - name: Phase 2 performance smoke
+        run: python scripts/phase2_perf_smoke.py
+
+      - name: Phase 2 CI PASS label
+        if: success()
+        run: echo "[OK Phase 2 CI PASS]"

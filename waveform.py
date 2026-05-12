@@ -56,8 +56,14 @@ def _pulse_trace(
 ) -> Tuple[np.ndarray, np.ndarray, dict]:
     freq = exp.freq_hz
     duty = exp.duty
-    total = exp.total_time if exp.total_time is not None else exp.on_time
-    on_duration = duty / freq if freq > 0 else total
+    on_duration = duty / freq if freq > 0 else exp.on_time
+
+    # 펄스 사이클 모드 판정
+    pulse_cyclic = exp.off_time > 0 and exp.cycles > 1
+    if pulse_cyclic:
+        total = exp.cycles * (exp.on_time + exp.off_time)
+    else:
+        total = exp.total_time if exp.total_time is not None else exp.on_time
 
     if freq > 10.0:
         # 고주파: 평균전력 트레이스 + peak 포락선
@@ -65,19 +71,37 @@ def _pulse_trace(
         dt = max(total / 1000.0, 1e-4)
         n = int(total / dt) + 1
         t = np.linspace(0.0, total, n)
-        return t, np.full(n, P_avg), {
+
+        if pulse_cyclic:
+            period_cycle = exp.on_time + exp.off_time
+            cycle_idx = np.floor(t / period_cycle).astype(int)
+            in_on_phase = (t % period_cycle <= exp.on_time) & (cycle_idx < exp.cycles)
+            P = np.where(in_on_phase, P_avg, 0.0)
+        else:
+            P = np.full(n, P_avg)
+
+        return t, P, {
             "t_exp_per_pulse": on_duration,
-            "peak_envelope": np.full(n, P_peak),
+            "peak_envelope": np.full(n, P_peak) if pulse_cyclic else np.full(n, P_peak),
         }
 
     # 저주파: 개별 펄스 시간축
-    period = 1.0 / freq if freq > 0 else total
+    period_pulse = 1.0 / freq if freq > 0 else total
     dt = max(min(on_duration / 10.0, 0.01), 1e-6)
     n = int(total / dt) + 1
     _check_samples(n)
 
     t = np.linspace(0.0, total, n)
-    P = np.where(t % period <= on_duration, P_peak, 0.0)
+
+    if pulse_cyclic:
+        period_cycle = exp.on_time + exp.off_time
+        cycle_idx = np.floor(t / period_cycle).astype(int)
+        in_on_phase = (t % period_cycle <= exp.on_time) & (cycle_idx < exp.cycles)
+        pulse_phase = (t % period_pulse) <= on_duration
+        P = np.where(in_on_phase & pulse_phase, P_peak, 0.0)
+    else:
+        P = np.where(t % period_pulse <= on_duration, P_peak, 0.0)
+
     return t, P, {"t_exp_per_pulse": on_duration, "peak_envelope": None}
 
 

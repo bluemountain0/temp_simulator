@@ -22,15 +22,50 @@ LEVEL_COLORS = {
 }
 
 THRESHOLD_LINES = [
-    (700,  "BTi-5 경고 700°C",   "#c5b0d5"),   # BTi5 연보라
-    (840,  "BTi-5 고상선 840°C",  "#9467bd"),   # BTi5 보라
-    (880,  "BTi-5 액상선 880°C",  "#6a3d9a"),   # BTi5 진보라
-    (1085, "Cu 용융 1085°C",     "#2ca02c"),   # Cu_body 초록
-    (2500, "W 손상4 2500°C",    "#d62728"),   # W surf 빨강
-    (3422, "W 파국 3422°C",     "#8b0000"),   # W surf 다크레드
+    (700,  "BTi-5 경고 700°C",        "#9467bd"),   # 보라
+    (880,  "BTi-5 액상선 880°C",     "#ff7f0e"),   # 주황
+    (2500, "W 손상4 2500°C",        "#d62728"),   # 빨강
 ]
 
 NODE_COLORS = ["#d62728", "#ff7f0e", "#9467bd", "#8c564b", "#2ca02c", "#1f77b4"]
+
+# FSS 테이블 (IEC 60336 표3) — 공칭 초점 칫수 f → 최대 허용값 (L, W) [mm]
+_FSS_TABLE = {
+    0.1: {"length": 0.15, "width": 0.15},
+    0.15: {"length": 0.23, "width": 0.23},
+    0.2: {"length": 0.30, "width": 0.30},
+    0.25: {"length": 0.38, "width": 0.38},
+    0.3: {"length": 0.45, "width": 0.65},
+    0.4: {"length": 0.60, "width": 0.85},
+    0.5: {"length": 0.75, "width": 1.10},
+    0.6: {"length": 0.90, "width": 1.30},
+    0.7: {"length": 1.10, "width": 1.50},
+    0.8: {"length": 1.20, "width": 1.60},
+    0.9: {"length": 1.30, "width": 1.80},
+    1.0: {"length": 1.40, "width": 2.00},
+    1.1: {"length": 1.50, "width": 2.20},
+    1.2: {"length": 1.70, "width": 2.40},
+    1.3: {"length": 1.80, "width": 2.60},
+    1.4: {"length": 1.90, "width": 2.80},
+    1.5: {"length": 2.00, "width": 3.00},
+    1.6: {"length": 2.10, "width": 3.10},
+    1.7: {"length": 2.20, "width": 3.20},
+    1.8: {"length": 2.30, "width": 3.30},
+    1.9: {"length": 2.40, "width": 3.50},
+    2.0: {"length": 2.60, "width": 3.70},
+    2.2: {"length": 2.90, "width": 4.00},
+    2.4: {"length": 3.10, "width": 4.40},
+    2.6: {"length": 3.40, "width": 4.80},
+    2.8: {"length": 3.60, "width": 5.20},
+    3.0: {"length": 3.90, "width": 5.60},
+}
+
+def _get_nominal_fss(L_eff: float, W_eff: float) -> float:
+    """L_eff, W_eff → 해당하는 공칭값 f 반환 (FSS 테이블 기반)."""
+    for f in sorted(_FSS_TABLE.keys()):
+        if L_eff <= _FSS_TABLE[f]["length"] and W_eff <= _FSS_TABLE[f]["width"]:
+            return f
+    return 3.0  # 상한
 
 # ─── 페이지 설정 ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -61,15 +96,41 @@ with st.sidebar:
         if mode == "Pulse":
             freq_hz = st.number_input("주파수 [Hz]", 0.1, 10000.0, 1000.0)
             duty = st.slider("듀티 사이클", 0.01, 1.0, 0.1, 0.01)
+            pulse_cyclic = st.checkbox("펄스 사이클 모드", value=False)
+            if pulse_cyclic:
+                off_time = st.number_input("펄스 휴지 시간 [s]", 0.0, 3600.0, 5.0, 1.0)
+                cycles = int(st.number_input("사이클 수", 1, 100, 3, 1))
+            else:
+                off_time, cycles = 0.0, 1
         else:
             freq_hz, duty = 0.0, 1.0
+            pulse_cyclic = False
+            off_time, cycles = 0.0, 1
 
     with st.expander("🔍 포컬 스팟", expanded=False):
-        L_eff = st.number_input("실효 길이 L_eff [mm]", 0.1, 10.0, 1.1, 0.1)
-        W_eff = st.number_input("실효 폭 W_eff [mm]", 0.1, 10.0, 0.75, 0.05)
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            L_eff = st.number_input("실효 길이 L_eff [mm]", 0.1, 10.0, 1.1, 0.1)
+            W_eff = st.number_input("실효 폭 W_eff [mm]", 0.1, 10.0, 0.75, 0.05)
+        with col2:
+            st.write("")  # 높이 맞추기
+            if st.button("📋 FSS 표"):
+                try:
+                    from pathlib import Path
+                    fss_path = Path.home() / "Desktop" / "열역학" / "참고자료" / "FSS_Table.png"
+                    if fss_path.exists():
+                        st.image(str(fss_path), caption="IEC 60336 표3", use_column_width=True)
+                    else:
+                        st.error(f"파일을 찾을 수 없습니다: {fss_path}")
+                except Exception as e:
+                    st.error(f"이미지 로드 오류: {e}")
+
+        nominal = _get_nominal_fss(L_eff, W_eff)
+        st.metric("Nominal 초점 칫수 f", f"{nominal:.1f}",
+                  help="IEC 60336 표3 기반 공칭값")
 
     with st.expander("🛢️ 냉각 조건", expanded=True):
-        oil_vol = int(st.selectbox("절연유 부피 [L]", [25, 30], 0))
+        oil_vol = int(st.number_input("절연유 부피 [L]", 1.0, 500.0, 25.0, 1.0))
         ves_w = st.number_input("용기 가로 [cm]", 5.0, 200.0, 20.0, 1.0)
         ves_d = st.number_input("용기 세로 [cm]", 5.0, 200.0, 20.0, 1.0)
         conv = st.radio("대류", ["자연 (h=50 W/m²K)", "강제 (h=200 W/m²K)"], horizontal=False)

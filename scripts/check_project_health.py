@@ -127,6 +127,8 @@ def check_todos() -> None:
     pattern = re.compile(r"\b(TODO|FIXME|XXX)\b")
     total = 0
     for p in iter_python_files():
+        if p.name == "check_project_health.py":
+            continue  # 자기 자신의 regex 패턴 문자열은 제외
         try:
             text = p.read_text(encoding="utf-8", errors="ignore")
         except Exception:

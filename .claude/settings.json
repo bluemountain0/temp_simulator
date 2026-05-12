@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pytest*)",
+      "Bash(python -m pytest*)",
+      "Bash(python scripts/check_project_health.py*)",
+      "Bash(streamlit run app.py*)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git show*)",
+      "Bash(git branch*)"
+    ]
+  }
+}

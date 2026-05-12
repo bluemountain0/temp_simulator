@@ -64,7 +64,7 @@ _FSS_TABLE = {
 def _get_nominal_fss(L_eff: float, W_eff: float) -> float:
     """L_eff, W_eff → 해당하는 공칭값 f 반환 (FSS 테이블 기반)."""
     for f in sorted(_FSS_TABLE.keys()):
-        if L_eff <= _FSS_TABLE[f]["length"] and W_eff <= _FSS_TABLE[f]["width"]:
+        if L_eff <= _FSS_TABLE[f]["width"] and W_eff <= _FSS_TABLE[f]["length"]:
             return f
     return 3.0  # 상한
 

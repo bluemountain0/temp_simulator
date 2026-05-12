@@ -132,6 +132,6 @@ pytest tests/ -v
 
 - `thermal_solver.py`와 `thermal_rc.py` 양쪽 모두 `t_eval=t_arr` 유지할 것
 - `_MAX_SAMPLES = 100_000` 초과 시 `ValueError` 발생 — DC 사이클 긴 조건에서 주의
-- `fem_model.py`는 Phase 2 플레이스홀더. 현재 건드리지 말 것
+- `fdm2d_solver.py`는 Phase 2 인플라이트 (`phase2-2dfdm` 브랜치). US-2부터 구현 진행 중
 - `st.cache_data`가 `run_sim()`에 적용됨 — 입력값 동일 시 재계산 없음
 - 재료 물성 변경 시 `materials.py`만 수정하면 전체 반영됨

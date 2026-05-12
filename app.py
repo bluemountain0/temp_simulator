@@ -117,14 +117,15 @@ with st.sidebar:
             st.write("")  # 높이 맞추기
             if st.button("📋 FSS 표"):
                 try:
+                    import os
                     from pathlib import Path
                     fss_path = Path.home() / "Desktop" / "열역학" / "참고자료" / "FSS_Table.png"
                     if fss_path.exists():
-                        st.image(str(fss_path), caption="IEC 60336 표3", use_column_width=True)
+                        os.startfile(str(fss_path))
                     else:
                         st.error(f"파일을 찾을 수 없습니다: {fss_path}")
                 except Exception as e:
-                    st.error(f"이미지 로드 오류: {e}")
+                    st.error(f"이미지 열기 오류: {e}")
 
         nominal = _get_nominal_fss(L_eff, W_eff)
         st.metric("Nominal 초점 칫수 f", f"{nominal:.1f}",
